@@ -1,0 +1,14 @@
+#!/bin/sh
+#---------------
+# Testing tgtadm
+#---------------
+
+for cmd in tgtadm tgt-admin tgtimg; do
+	/usr/sbin/$cmd --help > /dev/null 2>&1
+	RET=$?
+
+	if [ $RET -ne 0 ]; then
+	  echo "ERROR, failed to run ${cmd}" >&2
+	  exit $RET
+	fi
+done
