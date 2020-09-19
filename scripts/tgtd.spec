@@ -1,6 +1,6 @@
 Name:           scsi-target-utils
 Version:        1.0.24
-Release:        2%{?dist}
+Release:        0
 Summary:        The SCSI target daemon and utility programs
 Packager:       Roi Dayan <roid@mellanox.com>
 Group:          System Environment/Daemons
@@ -75,7 +75,6 @@ fi
 
 %clean
 %{__rm} -rf %{buildroot}
-
 
 %files
 %defattr(-, root, root, -)

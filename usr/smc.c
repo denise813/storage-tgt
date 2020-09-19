@@ -161,9 +161,9 @@ static int add_element_descriptor(uint8_t *data, struct slot *s,
 	i = 12;
 	if (voltag) {
 		if (s->volume_tag[0] != ' ' && s->volume_tag[0] != '\0')
-			snprintf((char *)&data[i], 32, "%-32s", s->volume_tag);
+			scsi_sprintf((char *)&data[i], 32, "%-32s", s->volume_tag);
 		else if (s->barcode[0] != ' ' && s->barcode[0] != '\0')
-			snprintf((char *)&data[i], 32, "%-32s", s->barcode);
+			scsi_sprintf((char *)&data[i], 32, "%-32s", s->barcode);
 		else
 			memset(&data[i], 0x20, 32);
 
@@ -181,7 +181,12 @@ static int add_element_descriptor(uint8_t *data, struct slot *s,
 		data[i + 3] = 34;	/* Length */
 		snprintf((char *)&data[i + 4], 9, "%-8s", attr->vendor_id);
 		snprintf((char *)&data[i + 12], 17, "%-16s", attr->product_id);
-		snprintf((char *)&data[i + 28], 11, "%-10s", attr->scsi_sn);
+		{
+			char buf[sizeof(attr->scsi_sn) + 1];
+			memset(buf, 0, sizeof(buf));
+			snprintf(buf, sizeof(buf), "%-s", attr->scsi_sn);
+			memcpy((char *)&data[i + 28], buf, 10);
+		}
 	}
 
 	return determine_element_sz(dvcid, voltag);
@@ -727,8 +732,13 @@ static tgtadm_err config_slot(struct scsi_lu *lu, struct tmp_param *tmp)
 			adm_err = TGTADM_SUCCESS;
 			break;
 		}
-		strncpy(s->barcode, tmp->barcode, sizeof(s->barcode));
-		strncpy(s->volume_tag, tmp->volume_tag, sizeof(s->volume_tag));
+		if (strlen(tmp->barcode) > sizeof(s->barcode) ||
+		    strlen(tmp->volume_tag) > sizeof(s->volume_tag)) {
+			eprintf("barcode or volume tag too large?");
+			break;
+		}
+		strcpy(s->barcode, tmp->barcode);
+		strcpy(s->volume_tag, tmp->volume_tag);
 		set_slot_full(s, 0, NULL);
 		adm_err = TGTADM_SUCCESS;
 		break;

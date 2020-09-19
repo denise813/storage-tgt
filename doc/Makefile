@@ -2,7 +2,8 @@ mandir ?= $(PREFIX)/share/man
 docdir ?= $(PREFIX)/share/doc/tgt
 
 MANPAGES = manpages/tgtadm.8 manpages/tgt-admin.8 manpages/tgtimg.8 \
-		manpages/tgt-setup-lun.8 manpages/tgtd.8
+		manpages/tgt-setup-lun.8 manpages/tgtd.8 \
+		manpages/targets.conf.5
 
 DOCS = README.iscsi README.iser \
 	    README.lu_configuration README.mmc tmf.txt \
@@ -17,14 +18,17 @@ XMLHTML = htmlpages/tgtd.8.html htmlpages/tgtadm.8.html \
 		htmlpages/targets.conf.5.html htmlpages/tgt-setup-lun.8.html
 
 .PHONY:all
-all: xmlman
+all: xmlman xmlhtml
 
 .PHONY: install
 install: $(MANPAGES) $(DOCS)
-	install -d -m 755 $(DESTDIR)$(mandir)/man8
-	install -m 644 $(MANPAGES) $(DESTDIR)$(mandir)/man8
+	install -d -m 755 $(DESTDIR)$(mandir)/man8 $(DESTDIR)$(mandir)/man5
+	install -m 644 $(filter %.8,$(MANPAGES)) $(DESTDIR)$(mandir)/man8
+	install -m 644 $(filter %.5,$(MANPAGES)) $(DESTDIR)$(mandir)/man5
 	install -d -m 755 $(DESTDIR)$(docdir)
 	install -m 644 $(DOCS) $(DESTDIR)$(docdir)
+	install -d -m 755 $(DESTDIR)$(docdir)/html
+	install -m 644 $(XMLHTML) $(DESTDIR)$(docdir)/html
 
 .PHONY: clean
 clean:
@@ -32,40 +36,40 @@ clean:
 	-rm -f manpages htmlpages
 
 manpages/tgtd.8: tgtd.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/manpages/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 htmlpages/tgtd.8.html: tgtd.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/html/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl $<
 
 manpages/tgtadm.8: tgtadm.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/manpages/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 htmlpages/tgtadm.8.html: tgtadm.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/html/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl $<
 
 manpages/tgt-admin.8: tgt-admin.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/manpages/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 htmlpages/tgt-admin.8.html: tgt-admin.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/html/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl $<
 
 manpages/tgtimg.8: tgtimg.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/manpages/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 htmlpages/tgtimg.8.html: tgtimg.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/html/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl $<
 
 manpages/targets.conf.5: targets.conf.5.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/manpages/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 htmlpages/targets.conf.5.html: targets.conf.5.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/html/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl $<
 
 manpages/tgt-setup-lun.8: tgt-setup-lun.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/manpages/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 htmlpages/tgt-setup-lun.8.html: tgt-setup-lun.8.xml
-	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ /usr/share/xml/docbook/stylesheet/docbook-xsl/html/docbook.xsl $<
+	-test -z "$(XSLTPROC)" || $(XSLTPROC) -o $@ http://docbook.sourceforge.net/release/xsl/current/html/docbook.xsl $<
 
 xmlman: $(XMLMAN)
 

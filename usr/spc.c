@@ -192,6 +192,26 @@ static void update_vpd_83(struct scsi_lu *lu, void *id)
 	data[0] |= NAA_IEEE_REGD_EXTD << 4;
 }
 
+static void update_vpd_b1(struct scsi_lu *lu, void *id)
+{
+	struct vpd *vpd_pg = lu->attrs.lu_vpd[PCODE_OFFSET(0xb1)];
+	uint8_t	*data = vpd_pg->data;
+
+	if (lu->attrs.rotation_rate) {
+		data[0] = (lu->attrs.rotation_rate >> 8) & 0xff;
+		data[1] = lu->attrs.rotation_rate & 0xff;
+		data[2] = 0; /* PRODUCT TYPE */
+		data[3] = 0; /* WABEREQ | WACEREQ | NOMINAL FORM FACTOR */
+		data[4] = 0; /* VBULS */
+	} else {
+		data[0] = 0;
+		data[1] = 0;
+		data[2] = 0;
+		data[3] = 0;
+		data[4] = 0;
+	}
+}
+
 static void update_vpd_b2(struct scsi_lu *lu, void *id)
 {
 	struct vpd *vpd_pg = lu->attrs.lu_vpd[PCODE_OFFSET(0xb2)];
@@ -289,9 +309,12 @@ int spc_inquiry(int host_no, struct scsi_cmd *cmd)
 		data[7] = 0x02;
 
 		memset(data + 8, 0x20, 28);
-		strncpy((char *)data + 8, attrs->vendor_id, VENDOR_ID_LEN);
-		strncpy((char *)data + 16, attrs->product_id, PRODUCT_ID_LEN);
-		strncpy((char *)data + 32, attrs->product_rev, PRODUCT_REV_LEN);
+		scsi_sprintf((char *)data + 8, VENDOR_ID_LEN, "%-*s",
+			     VENDOR_ID_LEN, attrs->vendor_id);
+		scsi_sprintf((char *)data + 16, PRODUCT_ID_LEN, "%-*s",
+			     PRODUCT_ID_LEN, attrs->product_id);
+		scsi_sprintf((char *)data + 32, PRODUCT_REV_LEN, "%-*s",
+			     PRODUCT_REV_LEN, attrs->product_rev);
 
 		desc = (uint16_t *)(data + 58);
 		for (i = 0; i < ARRAY_SIZE(attrs->version_desc); i++)
@@ -1907,6 +1930,7 @@ enum {
 	Opt_mode_page,
 	Opt_path, Opt_bsopts,
 	Opt_bsoflags, Opt_thinprovisioning,
+	Opt_rotation_rate,
 	Opt_err,
 };
 
@@ -1929,6 +1953,7 @@ static match_table_t tokens = {
 	{Opt_bsopts, "bsopts=%s"},
 	{Opt_bsoflags, "bsoflags=%s"},
 	{Opt_thinprovisioning, "thin_provisioning=%s"},
+	{Opt_rotation_rate, "rotation_rate=%s"},
 	{Opt_err, NULL},
 };
 
@@ -2027,6 +2052,12 @@ tgtadm_err lu_config(struct scsi_lu *lu, char *params, match_fn_t *fn)
 			lu_vpd[PCODE_OFFSET(0xb0)]->vpd_update(lu, NULL);
 			lu_vpd[PCODE_OFFSET(0xb2)]->vpd_update(lu, NULL);
 			break;
+		case Opt_rotation_rate:
+			match_strncpy(buf, &args[0], sizeof(buf));
+			attrs->rotation_rate = atoi(buf);
+			/* update the characteristics vpd page */
+			lu_vpd[PCODE_OFFSET(0xb1)]->vpd_update(lu, NULL);
+			break;
 		case Opt_online:
 			match_strncpy(buf, &args[0], sizeof(buf));
 			if (atoi(buf))
@@ -2069,7 +2100,7 @@ int spc_lu_init(struct scsi_lu *lu)
 	lu->attrs.sense_format = 0;
 
 	snprintf(lu->attrs.vendor_id, sizeof(lu->attrs.vendor_id),
-		 "%-16s", VENDOR_ID);
+		 "%-s", VENDOR_ID);
 	snprintf(lu->attrs.product_rev, sizeof(lu->attrs.product_rev),
 		 "%s", "0001");
 	snprintf(lu->attrs.scsi_id, sizeof(lu->attrs.scsi_id),
@@ -2102,6 +2133,14 @@ int spc_lu_init(struct scsi_lu *lu)
 	if (!lu_vpd[pg])
 		return -ENOMEM;
 	lu_vpd[pg]->vpd_update = update_vpd_b0;
+	lu_vpd[pg]->vpd_update(lu, NULL);
+
+	/* VPD page 0xb1 BLOCK DEVICE CHARACTERISTICS*/
+	pg = PCODE_OFFSET(0xb1);
+	lu_vpd[pg] = alloc_vpd(BDC_VPD_LEN);
+	if (!lu_vpd[pg])
+		return -ENOMEM;
+	lu_vpd[pg]->vpd_update = update_vpd_b1;
 	lu_vpd[pg]->vpd_update(lu, NULL);
 
 	/* VPD page 0xb2 LOGICAL BLOCK PROVISIONING*/

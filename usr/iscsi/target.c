@@ -224,7 +224,7 @@ get_redirect_address(char *callback, char *buffer, int buflen,
 {
 	char *p, *addr, *port;
 
-	bzero(buffer, buflen);
+	memset(buffer, 0, buflen);
 	if (call_program(callback, NULL, NULL, buffer, buflen, 0))
 		return -1;
 
@@ -410,9 +410,11 @@ void iscsi_target_destroy(int tid, int force)
 	}
 
 	list_for_each_entry_safe(session, stmp, &target->sessions_list, slist) {
+		session_get(session);
 		list_for_each_entry_safe(conn, ctmp, &session->conn_list, clist) {
 			conn_close(conn);
 		}
+		session_put(session);
 	}
 
 	if (!list_empty(&target->sessions_list)) {
@@ -672,6 +674,13 @@ static tgtadm_err iscsi_target_show_portals(struct iscsi_target *target, uint64_
 	return adm_err;
 }
 
+static tgtadm_err show_nop_info(struct iscsi_target *target, struct concat_buf *b)
+{
+	concat_printf(b, "nop_interval=%d\n", target->nop_interval);
+	concat_printf(b, "nop_count=%d\n", target->nop_count);
+	return TGTADM_SUCCESS;
+}
+
 static tgtadm_err show_redirect_info(struct iscsi_target *target, struct concat_buf *b)
 {
 	tgtadm_err adm_err = TGTADM_SUCCESS;
@@ -716,8 +725,10 @@ tgtadm_err iscsi_target_show(int mode, int tid, uint64_t sid, uint32_t cid, uint
 			adm_err = show_redirect_callback(target, b);
 		else if (strlen(target->redirect_info.addr))
 			adm_err = show_redirect_info(target, b);
-		else
+		else {
+			adm_err = show_nop_info(target, b);
 			adm_err = show_iscsi_param(target->session_param, b);
+		}
 		break;
 	case MODE_SESSION:
 		adm_err = iscsi_target_show_session(target, sid, b);

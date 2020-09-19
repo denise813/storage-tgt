@@ -193,11 +193,11 @@ static int log_enqueue(int prio, const char *fmt, va_list ap)
 	if (la->head <= la->tail &&
 	    (len + sizeof(struct logmsg)) > (la->end - la->tail)) {
 		logdbg(stderr, "enqueue: rewind tail to %p\n", la->tail);
-			la->tail = la->start;
+		la->tail = la->start;
 	}
 
 	/* not enough space on head : drop msg */
-	if (la->head > la->tail &&
+	if (la->head >= la->tail &&
 	    (len + sizeof(struct logmsg)) > (la->head - la->tail)) {
 		logdbg(stderr, "enqueue: log area overrun, drop msg\n");
 

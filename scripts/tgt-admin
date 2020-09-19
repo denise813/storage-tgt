@@ -488,7 +488,7 @@ sub add_backing_direct {
 	}
 
 	if ($can_alloc == 1 &&
-	   ($bstype =~ "openvstorage" || $bstype =~ "rbd" || (-e $backing_store && ! -d $backing_store))) {
+	   ($bstype =~ "glfs" || $bstype =~ "rbd" || (-e $backing_store && ! -d $backing_store))) {
 		my @exec_commands;
 		my $device_type;
 		my $bs_type;
@@ -585,7 +585,7 @@ sub add_backing_direct {
 			my $sg_readcap;
 			my %direct_params;
 			if ($direct_store == 1) {
-				$sg_inq=`sg_inq $backing_store`;
+				$sg_inq=`sg_inq "$backing_store"`;
 				if ($sg_inq=~m {
 					Vendor\ identification:\s+?(.*?)\n
 					\s+Product\ identification:\s+(.*?)\n
@@ -608,7 +608,7 @@ sub add_backing_direct {
 					}
 				}
 
-				$sg_inq=`sg_inq -p 0xb0 $backing_store`;
+				$sg_inq=`sg_inq -p 0xb0 "$backing_store"`;
 				if ($sg_inq=~m {
 					Optimal\ transfer\ length\ granularity:\s+?(\d+).*?\n
 					\s+Maximum\ transfer\ length:\s+?(\d+).*?\n
@@ -623,7 +623,7 @@ sub add_backing_direct {
 					}
 				}
 
-				$sg_readcap=`sg_readcap -16 $backing_store`;
+				$sg_readcap=`sg_readcap -16 "$backing_store"`;
 				if ($sg_readcap=~ m {
 					Logical\ block\ length=(\d+).*?\n
 					\s+Logical\ blocks\ per\ physical\ block\ exponent=(\d+).*?\n
@@ -725,7 +725,7 @@ sub add_backing_direct {
 		if (length $bsopts) { $bsopts = "--bsopts $bsopts" };
 		if (length $bsoflags) { $bsoflags = "--bsoflags $bsoflags" };
 		if (length $block_size) { $block_size = "--blocksize $block_size" };
-		execute("tgtadm -C $control_port --lld $driver --op new --mode logicalunit --tid $next_tid --lun $lun -b $backing_store $device_type $bs_type $bsopts $bsoflags $block_size");
+		execute("tgtadm -C $control_port --lld $driver --op new --mode logicalunit --tid $next_tid --lun $lun -b \"$backing_store\" $device_type $bs_type $bsopts $bsoflags $block_size");
 
 		# Commands should be executed in order
 		my @execute_last;
@@ -952,7 +952,12 @@ sub dump_config {
 		my @acl_information = show_target_info($current_target, "acl_information");
 		if (scalar(@acl_information) != 1 || $acl_information[0] ne "ALL") {
 			foreach my $ini_address (@acl_information) {
-				print "\tinitiator-address $ini_address\n";
+				# determine here if acl is an IP or IQN
+				if ( $ini_address =~ /^[0-9,.E]+$/ ) {
+					print "\tinitiator-address $ini_address\n";
+				} else {
+					print "\tinitiator-name $ini_address\n";
+				}
 			}
 		}
 		print "</target>\n\n";
@@ -1347,7 +1352,7 @@ sub check_device {
 	# Check if userspace uses this device
 	my $lsof_check = check_exe("lsof");
 	if ($lsof_check ne 1) {
-		system("lsof $backing_store >/dev/null 2>&1");
+		system("lsof \"$backing_store\" >/dev/null 2>&1");
 		my $exit_value  = $? >> 8;
 		if ($exit_value eq 0) {
 			execute("# Device $backing_store is used (already tgtd target?).");

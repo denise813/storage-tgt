@@ -245,6 +245,7 @@ static int sbc_rw(int host_no, struct scsi_cmd *cmd)
 	int ret;
 	uint64_t lba;
 	uint32_t tl;
+	size_t blocksize = 1 << cmd->dev->blk_shift;
 	unsigned char key = ILLEGAL_REQUEST;
 	uint16_t asc = ASC_LUN_NOT_SUPPORTED;
 	struct scsi_lu *lu = cmd->dev;
@@ -258,6 +259,9 @@ static int sbc_rw(int host_no, struct scsi_cmd *cmd)
 		asc = ASC_MEDIUM_NOT_PRESENT;
 		goto sense;
 	}
+
+	lba = scsi_rw_offset(cmd->scb);
+	tl  = scsi_rw_count(cmd->scb);
 
 	switch (cmd->scb[0]) {
 	case READ_10:
@@ -306,6 +310,17 @@ static int sbc_rw(int host_no, struct scsi_cmd *cmd)
 			asc = ASC_INVALID_FIELD_IN_CDB;
 			goto sense;
 		}
+		/* Fail of DataOut is neither ==0 or ==blocksize */
+		if (scsi_get_out_length(cmd) &&
+		    blocksize != scsi_get_out_length(cmd)) {
+			key = ILLEGAL_REQUEST;
+			asc = ASC_PARAMETER_LIST_LENGTH_ERR;
+			goto sense;
+		}
+		/* TL == 0 means all LBAs until end of device */
+		if (tl == 0)
+			tl = (lu->size >> cmd->dev->blk_shift) - lba;
+
 		break;
 	}
 
@@ -330,9 +345,6 @@ static int sbc_rw(int host_no, struct scsi_cmd *cmd)
 			break;
 		}
 	}
-
-	lba = scsi_rw_offset(cmd->scb);
-	tl  = scsi_rw_count(cmd->scb);
 
 	/* Verify that we are not doing i/o beyond
 	   the end-of-lun */

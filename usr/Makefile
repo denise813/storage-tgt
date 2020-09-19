@@ -5,7 +5,7 @@ ifneq ($(shell test -e /usr/include/linux/signalfd.h && echo 1),)
 CFLAGS += -DUSE_SIGNALFD
 endif
 
-ifneq ($(shell test -e /usr/include/sys/timerfd.h && echo 1),)
+ifneq ($(shell test -n $(shell find /usr/include -name "timerfd.h" | head -n1) && echo 1),)
 CFLAGS += -DUSE_TIMERFD
 endif
 
@@ -17,10 +17,6 @@ ifneq ($(CEPH_RBD),)
 MODULES += bs_rbd.so
 endif
 
-ifneq ($(OPENVSTORAGE),)
-MODULES += bs_openvstorage.so
-endif
-
 ifneq ($(GLFS_BD),)
 MODULES += bs_glfs.so
 endif
@@ -29,7 +25,7 @@ ifneq ($(SD_NOTIFY),)
 CFLAGS += -DUSE_SYSTEMD
 endif
 
-ifneq ($(shell test -e /usr/include/$(DEB_HOST_MULTIARCH)/sys/eventfd.h && test -e /usr/include/libaio.h && echo 1),)
+ifneq ($(shell test -e /usr/include/sys/eventfd.h && test -e /usr/include/libaio.h && echo 1),)
 CFLAGS += -DUSE_EVENTFD
 TGTD_OBJS += bs_aio.o
 LIBS += -laio
@@ -49,7 +45,7 @@ CFLAGS += -g -O0 -ggdb -rdynamic
 else
 CFLAGS += -g -O2 -fno-strict-aliasing
 endif
-CFLAGS += -Wall -Wstrict-prototypes -fPIC
+CFLAGS += -Wall -Wstrict-prototypes -Werror -fPIC
 CFLAGS += -DTGT_VERSION=\"$(VERSION)$(EXTRAVERSION)\"
 CFLAGS += -DBSDIR=\"$(DESTDIR)$(libdir)/backing-store\"
 
@@ -67,15 +63,14 @@ TGTD_OBJS += tgtd.o mgmt.o target.o scsi.o log.o driver.o util.o work.o \
 
 TGTD_DEP = $(TGTD_OBJS:.o=.d)
 
-TGTD_LDFLAGS = $(LDFLAGS)
-TGTD_LDFLAGS += -Wl,-E,-rpath=$(libdir)
+LDFLAGS = -Wl,-E,-rpath=$(libdir)
 
 .PHONY:all
 all: $(PROGRAMS) $(MODULES)
 
 tgtd: $(TGTD_OBJS)
 	echo $(CC) $^ -o $@ $(LIBS)
-	$(CC) $^ -o $@ $(TGTD_LDFLAGS) $(LIBS)
+	$(CC) $^ -o $@ $(LDFLAGS) $(LIBS)
 
 -include $(TGTD_DEP)
 
@@ -83,7 +78,7 @@ TGTADM_OBJS = tgtadm.o concat_buf.o
 TGTADM_DEP = $(TGTADM_OBJS:.o=.d)
 
 tgtadm: $(TGTADM_OBJS)
-	$(CC) $^ -o $@ $(LDFLAGS)
+	$(CC) $^ -o $@
 
 -include $(TGTADM_DEP)
 
@@ -91,29 +86,22 @@ TGTIMG_OBJS = tgtimg.o libssc.o libcrc32c.o
 TGTIMG_DEP = $(TGTIMG_OBJS:.o=.d)
 
 tgtimg: $(TGTIMG_OBJS)
-	$(CC) $^ -o $@ $(LDFLAGS)
+	$(CC) $^ -o $@
 
 -include $(TGTIMG_DEP)
 
 %.o: %.c
-	$(CC) $(CPPFLAGS) -c $(CFLAGS) $*.c -o $*.o
+	$(CC) -c $(CFLAGS) $*.c -o $*.o
 	@$(CC) -MM $(CFLAGS) -MF $*.d -MT $*.o $*.c
 
 %.so: %.c
-	$(CC) $(CPPFLAGS) -shared $(CFLAGS) $*.c -o $*.so
+	$(CC) -shared $(CFLAGS) $*.c -o $*.so
 
 bs_rbd.so: bs_rbd.c
-	$(CC) $(CPPFLAGS) -shared $(CFLAGS) bs_rbd.c -o bs_rbd.so \
-		-lrados -lrbd $(LDFLAGS)
-
-bs_openvstorage.so: bs_openvstorage.c
-	$(CC) $(CPPFLAGS) -shared $(CFLAGS) bs_openvstorage.c -o bs_openvstorage.so \
-		-lovsvolumedriver -L/usr/lib/openvstorage $(LDFLAGS)
+	$(CC) -shared $(CFLAGS) bs_rbd.c -o bs_rbd.so -lrados -lrbd
 
 bs_glfs.so: bs_glfs.c
-	$(CC) $(CPPFLAGS) -I/usr/include/glusterfs/api \
-		-shared $(CFLAGS) bs_glfs.c -o bs_glfs.so \
-		-lgfapi $(LDFLAGS)
+	$(CC) -I/usr/include/glusterfs/api -shared $(CFLAGS) bs_glfs.c -o bs_glfs.so -lgfapi
 
 .PHONY: install
 install: $(PROGRAMS) $(MODULES)

@@ -355,6 +355,13 @@ int iscsi_tcp_init_portal(char *addr, int port, int tpgt)
 			continue;
 		}
 
+		ret = getsockname(fd, res->ai_addr, &res->ai_addrlen);
+		if (ret) {
+			close(fd);
+			eprintf("unable to get socket address, %m\n");
+			continue;
+		}
+
 		set_non_blocking(fd);
 		ret = tgt_event_add(fd, EPOLLIN, accept_connection, NULL);
 		if (ret)
@@ -369,10 +376,14 @@ int iscsi_tcp_init_portal(char *addr, int port, int tpgt)
 		case AF_INET:
 			addrptr = &((struct sockaddr_in *)
 				    res->ai_addr)->sin_addr;
+			port = ntohs(((struct sockaddr_in *)
+					res->ai_addr)->sin_port);
 			break;
 		case AF_INET6:
 			addrptr = &((struct sockaddr_in6 *)
 				    res->ai_addr)->sin6_addr;
+			port = ntohs(((struct sockaddr_in6 *)
+					res->ai_addr)->sin6_port);
 			break;
 		}
 		portal->addr = strdup(inet_ntop(res->ai_family, addrptr,
@@ -431,7 +442,7 @@ static int iscsi_tcp_init(void)
 	   for ipv4 and ipv6
 	*/
 	if (list_empty(&iscsi_portals_list)) {
-		iscsi_add_portal(NULL, 3260, 1);
+		iscsi_add_portal(NULL, ISCSI_LISTEN_PORT, 1);
 	}
 
 	INIT_LIST_HEAD(&iscsi_tcp_conn_list);
@@ -508,6 +519,8 @@ static size_t iscsi_tcp_close(struct iscsi_connection *conn)
 	struct iscsi_tcp_connection *tcp_conn = TCP_CONN(conn);
 
 	tgt_event_del(tcp_conn->fd);
+	conn->state = STATE_CLOSE;
+	tcp_conn->nop_interval = 0;
 	return 0;
 }
 
@@ -576,7 +589,10 @@ static void iscsi_tcp_free_task(struct iscsi_task *task)
 
 static void *iscsi_tcp_alloc_data_buf(struct iscsi_connection *conn, size_t sz)
 {
-	return valloc(sz);
+	void *addr = NULL;
+	if (posix_memalign(&addr, sysconf(_SC_PAGESIZE), sz) != 0)
+		return addr;
+	return addr;
 }
 
 static void iscsi_tcp_free_data_buf(struct iscsi_connection *conn, void *buf)

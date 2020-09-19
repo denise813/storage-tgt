@@ -266,11 +266,12 @@ static void login_security_done(struct iscsi_connection *conn)
 			struct iscsi_connection *ent, *next;
 
 			/* do session reinstatement */
-
+			session_get(session);
 			list_for_each_entry_safe(ent, next, &session->conn_list,
 						 clist) {
 				conn_close(ent);
 			}
+			session_put(session);
 
 			session = NULL;
 		} else if (req->tsih != session->tsih) {
@@ -1227,6 +1228,9 @@ void iscsi_free_task(struct iscsi_task *task)
 
 	list_del(&task->c_siblings);
 
+	if (task_opcode(task) == ISCSI_OP_SCSI_CMD)
+		list_del(&task->c_hlist);
+
 	conn->tp->free_data_buf(conn, scsi_get_in_buffer(&task->scmd));
 	conn->tp->free_data_buf(conn, scsi_get_out_buffer(&task->scmd));
 
@@ -1251,7 +1255,6 @@ void iscsi_free_cmd_task(struct iscsi_task *task)
 {
 	target_cmd_done(&task->scmd);
 
-	list_del(&task->c_hlist);
 	iscsi_free_task(task);
 }
 
@@ -1595,7 +1598,6 @@ static int iscsi_task_queue(struct iscsi_task *task)
 	struct iscsi_hdr *req = (struct iscsi_hdr *) &task->req;
 	uint32_t cmd_sn;
 	struct iscsi_task *ent;
-	int err;
 
 	dprintf("%x %x %x\n", be32_to_cpu(req->statsn), session->exp_cmd_sn,
 		req->opcode);
@@ -1609,7 +1611,7 @@ static int iscsi_task_queue(struct iscsi_task *task)
 		session->exp_cmd_sn = ++cmd_sn;
 
 		/* Should we close the connection... */
-		err = iscsi_task_execute(task);
+		iscsi_task_execute(task);
 
 		if (list_empty(&session->pending_cmd_list))
 			return 0;
@@ -1958,13 +1960,28 @@ static int iscsi_scsi_cmd_tx_done(struct iscsi_connection *conn)
 static int iscsi_task_tx_done(struct iscsi_connection *conn)
 {
 	struct iscsi_task *task = conn->tx_task;
-	int err;
 	uint8_t op;
 
 	op = task->req.opcode & ISCSI_OPCODE_MASK;
 	switch (op) {
 	case ISCSI_OP_SCSI_CMD:
-		err = iscsi_scsi_cmd_tx_done(conn);
+		iscsi_scsi_cmd_tx_done(conn);
+		break;
+	case ISCSI_OP_NOOP_IN:
+		/* NOOP_IN req is allocated within iscsi_tcp
+		 * by a direct call to the transport
+		 * allocation routine, unaccounted in the
+		 * connection refcount and not added to
+		 * task_list, hence it should be freed when
+		 * it's done by a similar direct call.
+		 *
+		 * We're overprotective here by checking tp's
+		 * free_task pointer, avoiding interference
+		 * with iser (I'm unsure if it's relevant
+		 * though).
+		 */
+		if (task->conn->tp->free_task)
+			task->conn->tp->free_task(task);
 		break;
 	case ISCSI_OP_NOOP_OUT:
 	case ISCSI_OP_LOGOUT:
@@ -2452,7 +2469,7 @@ int iscsi_param_parse_portals(char *p, int do_add,
 	while (*p) {
 		if (!strncmp(p, "portal", 6)) {
 			char *addr, *q;
-			int len = 0, port = 0;
+			int len = 0, port = ISCSI_LISTEN_PORT;
 
 			addr = p + 7;
 

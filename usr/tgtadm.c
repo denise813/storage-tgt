@@ -44,8 +44,6 @@
 #define NO_LOGGING
 #include "log.h"
 
-#define BUFSIZE 4096
-
 static const char program_name[] = "tgtadm";
 static int debug;
 
@@ -226,7 +224,11 @@ static int ipc_mgmt_connect(int *fd)
 	snprintf(mgmt_path, sizeof(mgmt_path), "%s.%d",
 			 path, control_port);
 
-	strncpy(addr.sun_path, mgmt_path, sizeof(addr.sun_path));
+	if (strlen(mgmt_path) > (sizeof(addr.sun_path) - 1)) {
+		eprintf("management path too long: %s\n", mgmt_path);
+		return EINVAL;
+	}
+	strcpy(addr.sun_path, mgmt_path);
 
 	err = connect(*fd, (struct sockaddr *) &addr, sizeof(addr));
 	if (err < 0)
@@ -677,7 +679,7 @@ int main(int argc, char **argv)
 	}
 
 	if (mode == MODE_TARGET) {
-		if ((tid <= 0 && (op != OP_SHOW))) {
+		if (tid <= 0 && (op != OP_SHOW)) {
 			if (tid == 0)
 				eprintf("'tid' cannot be 0\n");
 			else
@@ -992,7 +994,7 @@ int main(int argc, char **argv)
 			      portalOps);
 
 	if (b.err) {
-		eprintf("BUFSIZE (%d bytes) isn't long enough\n", BUFSIZE);
+		eprintf("BUFSIZE (%zu bytes) isn't long enough\n", b.size + 1);
 		return EINVAL;
 	}
 

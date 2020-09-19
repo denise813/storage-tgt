@@ -148,7 +148,7 @@ struct signalfd_siginfo {
 	unsigned long long ull_val;     		\
 	ull_val = strtoull(str, &ptr, 0);       	\
 	val = (typeof(val)) ull_val;    		\
-	if (ull_val == ULONG_MAX || ptr == str)		\
+	if (ull_val == ULLONG_MAX || ptr == str)	\
 		ret = EINVAL;   			\
 	else if (val != ull_val)			\
 		ret = ERANGE;   			\
@@ -239,5 +239,13 @@ static __always_inline int test_bit(unsigned int nr, const unsigned long *addr)
 	return ((1UL << (nr % BITS_PER_LONG)) &
 		(((unsigned long *)addr)[nr / BITS_PER_LONG])) != 0;
 }
+
+#define scsi_sprintf(str, size, format, ...) \
+	do { \
+		char buf[size + 1]; \
+		memset(buf, 0, sizeof(buf)); \
+		snprintf(buf, sizeof(buf), format, ## __VA_ARGS__); \
+		memcpy(str, buf, size); \
+	} while (0)
 
 #endif
