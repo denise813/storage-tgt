@@ -36,6 +36,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
 
 #include "list.h"
 #include "tgtd.h"
@@ -376,6 +377,7 @@ int call_program(const char *cmd, void (*callback)(void *data, int result),
 		int ret_sel;
 
 		close(fds[1]);
+		prctl(PR_SET_NAME, "tgtd_callback", NULL, NULL, NULL);
 		/* 0.1 second is okay, as the initiator will retry anyway */
 		do {
 			FD_ZERO(&rfds);
@@ -569,7 +571,9 @@ int main(int argc, char **argv)
 	int err, ch, longindex, nr_lld = 0;
 	int is_daemon = 1, is_debug = 0, use_logger = 1;
 	int ret;
-	char *pidfile = NULL;
+/* modify end by hy, 2020-09-20 添加默认的pid 文件 */
+	char *pidfile = "/var/run/tgtd/tgtd.pid";
+/* modify end by hy, 2020-09-20 */
 
 	sa_new.sa_handler = signal_catch;
 	sigemptyset(&sa_new.sa_mask);
@@ -589,7 +593,7 @@ int main(int argc, char **argv)
 		switch (ch) {
 		case 'f':
 			is_daemon = 0;
-			use_logger = 0;
+			use_logger = 1;
 			break;
 		case 'D':
 			is_daemon = 0;
@@ -646,7 +650,7 @@ int main(int argc, char **argv)
 		exit(1);
 
 /** comment by hy 2020-09-20
- * # accpt 操作
+ * # 处理管理套接字
      这里的核心函数 mgmt_event_handler ->mtask_recv_send_handler
      mtask_received 处理创建设备等
      concat_write
@@ -654,8 +658,9 @@ int main(int argc, char **argv)
 	err = ipc_init();
 	if (err)
 		exit(1);
-
+/* modify begin by hy, 2020-09-20, BugId:123 原因: 应该使用 use_logger */
 	err = log_init(program_name, LOG_SPACE_SIZE, use_logger, is_debug);
+/* modify end by hy, 2020-09-20 */
 	if (err)
 		exit(1);
 
@@ -695,8 +700,10 @@ int main(int argc, char **argv)
 	sd_notify(0, "READY=1\nSTATUS=Starting event loop...");
 #endif
 
-	if (is_daemon && pidfile)
+/* modify end by hy, 2020-09-20 不管是不是后台进程都创建pid文件 */
+	if (pidfile)
 		create_pid_file(pidfile);
+/* modify end by hy, 2020-09-20 */
 
 /** comment by hy 2020-09-20
  * # 监控到事件执行其对应的处理,主要可以看在上面连个核心函数
@@ -712,8 +719,10 @@ int main(int argc, char **argv)
 
 	log_close();
 
-	if (is_daemon && pidfile)
+/* modify begin by hy, 2020-09-20, BugId:123 原因: 不管是不是后台进程都创建pid文件 */
+	if (pidfile)
 		unlink(pidfile);
+/* modify end by hy, 2020-09-20 */
 
 	return 0;
 }
