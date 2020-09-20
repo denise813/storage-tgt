@@ -13,7 +13,7 @@ export VERSION PREFIX
 
 # Export the feature switches so sub-make knows about them
 export ISCSI_RDMA
-export CEPH_RBD
+export CEPH_RBD 1
 export GLFS_BD
 export SD_NOTIFY
 
