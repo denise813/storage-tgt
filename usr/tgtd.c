@@ -446,6 +446,9 @@ retry:
 	sched_remains = tgt_exec_scheduled();
 	timeout = sched_remains ? 0 : -1;
 
+/** comment by hy 2020-09-19
+ * # 事件监控
+ */
 	nevent = epoll_wait(ep_fd, events, ARRAY_SIZE(events), timeout);
 	if (nevent < 0) {
 		if (errno != EINTR) {
@@ -455,6 +458,9 @@ retry:
 	} else if (nevent) {
 		for (i = 0; i < nevent; i++) {
 			tev = (struct event_data *) events[i].data.ptr;
+/** comment by hy 2020-09-20
+ * # 这里对应的就是其回调函数
+ */
 			tev->handler(tev->fd, events[i].events, tev->data);
 
 			if (event_need_refresh) {
@@ -474,6 +480,15 @@ int lld_init_one(int lld_index)
 
 	INIT_LIST_HEAD(&tgt_drivers[lld_index]->target_list);
 	if (tgt_drivers[lld_index]->init) {
+/** comment by hy 2020-09-19
+ * # 这里调用了 init
+     在运行前 有两个 驱动模块
+     iscsi, rdma 的 iser
+     这里以 iscsi 为例 调用 init = iscsi_init
+     iscsi_init 调用 iscsi_transport 类型中的 ep_init
+     iscsi_tcp iscsi_iser
+     这里以 iscsi_tcp 为例 ep_init = iscsi_tcp_init
+ */
 		err = tgt_drivers[lld_index]->init(lld_index, spare_args);
 		if (err) {
 			tgt_drivers[lld_index]->drv_state = DRIVER_ERR;
@@ -489,6 +504,9 @@ static int lld_init(void)
 	int i, nr;
 
 	for (i = nr = 0; tgt_drivers[i]; i++) {
+/** comment by hy 2020-09-20
+ * # 处理准备连接超时外,核心逻辑 iscsi_tcp_event_handler
+ */
 		if (!lld_init_one(i))
 			nr++;
 	}
@@ -627,6 +645,12 @@ int main(int argc, char **argv)
 	if (is_daemon && daemon(0, 0))
 		exit(1);
 
+/** comment by hy 2020-09-20
+ * # accpt 操作
+     这里的核心函数 mgmt_event_handler ->mtask_recv_send_handler
+     mtask_received 处理创建设备等
+     concat_write
+ */
 	err = ipc_init();
 	if (err)
 		exit(1);
@@ -635,6 +659,12 @@ int main(int argc, char **argv)
 	if (err)
 		exit(1);
 
+/** comment by hy 2020-09-19
+ * # 初始化 后端驱动初始化,其中的核心逻辑 iscsi_tcp_event_handler
+     accpt 操作之后连接处理 的连接 iscsi_tcp_init
+           iscsi_rx_handler
+           iscsi_tx_handler
+ */
 	nr_lld = lld_init();
 	if (!nr_lld) {
 		fprintf(stderr, "No available low level driver!\n");
@@ -649,10 +679,16 @@ int main(int argc, char **argv)
 	if (err)
 		exit(1);
 
+/** comment by hy 2020-09-19
+ * # 定时线程处理 tcp 检查链路
+ */
 	err = work_timer_start();
 	if (err)
 		exit(1);
 
+/** comment by hy 2020-09-19
+ * # 加载后端驱动注册模块,核心逻辑为 register_bs_module
+ */
 	bs_init();
 
 #ifdef USE_SYSTEMD
@@ -662,6 +698,10 @@ int main(int argc, char **argv)
 	if (is_daemon && pidfile)
 		create_pid_file(pidfile);
 
+/** comment by hy 2020-09-20
+ * # 监控到事件执行其对应的处理,主要可以看在上面连个核心函数
+     上面进行包装回调放入队列中,这里进行执行回调
+ */
 	event_loop();
 
 	lld_exit();

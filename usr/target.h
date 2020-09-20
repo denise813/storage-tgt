@@ -45,6 +45,9 @@ struct target {
 	struct list_head lld_siblings;
 };
 
+/** comment by hy 2020-09-20
+ * # SCSI启动设备角色和SCSI目标设备角色之间关系
+ */
 struct it_nexus {
 	uint64_t itn_id;
 	long ctime;

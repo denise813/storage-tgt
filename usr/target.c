@@ -88,6 +88,9 @@ struct it_nexus *it_nexus_lookup(int tid, uint64_t itn_id)
 	struct target *target;
 	struct it_nexus *itn;
 
+/** comment by hy 2020-09-20
+ * # 从设备列表中找后端设备
+ */
 	target = target_lookup(tid);
 	if (!target)
 		return NULL;
@@ -427,6 +430,9 @@ tgtadm_err tgt_device_path_update(struct target *target, struct scsi_lu *lu,
 	if (!path)
 		return TGTADM_NOMEM;
 
+/** comment by hy 2020-09-20
+ * # 打开
+ */
 	err = lu->bst->bs_open(lu, path, &dev_fd, &size);
 	if (err) {
 		free(path);
@@ -532,6 +538,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		goto out;
 	}
 
+/** comment by hy 2020-09-20
+ * # 设备模板
+ */
 	bst = target->bst;
 	if (backing) {
 		if (bstype) {
@@ -545,6 +554,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 	} else
 		bst = get_backingstore_template("null");
 
+/** comment by hy 2020-09-20
+ * # 设备类型 
+ */
 	if ((!strncmp(bst->bs_name, "bsg", 3) ||
 	     !strncmp(bst->bs_name, "sg", 2)) &&
 	    dev_type != TYPE_PT) {
@@ -580,6 +592,16 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		goto out;
 	}
 
+/** comment by hy 2020-09-20
+ * # dev_type_template 包括以下类型
+     sg_template
+     mmc_template
+     osd_template
+     sbc_template
+     scc_template
+     smc_template
+     ssc_template
+ */
 	t = device_type_lookup(dev_type);
 	if (!t) {
 		eprintf("Unknown device type %d\n", dev_type);
@@ -587,6 +609,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		goto out;
 	}
 
+/** comment by hy 2020-09-20
+ * # 
+ */
 	lu = zalloc(sizeof(*lu) + bst->bs_datasize);
 	if (!lu) {
 		adm_err = TGTADM_NOMEM;
@@ -599,6 +624,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 	lu->lun = lun;
 	lu->bsoflags = lu_bsoflags;
 
+/** comment by hy 2020-09-20
+ * # 初始化设备对应的队列
+ */
 	tgt_cmd_queue_init(&lu->cmd_queue);
 	INIT_LIST_HEAD(&lu->registration_list);
 	INIT_LIST_HEAD(&lu->lu_itl_info_list);
@@ -606,6 +634,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 	lu->prgeneration = 0;
 	lu->pr_holder = NULL;
 
+/** comment by hy 2020-09-20
+ * # 设置 dev_type 对应的 cmd_perform
+ */
 	lu->cmd_perform = &target_cmd_perform;
 	lu->cmd_done = &__cmd_done;
 
@@ -1112,6 +1143,9 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 	struct it_nexus *itn;
 	uint64_t dev_id, itn_id = cmd->cmd_itn_id;
 
+/** comment by hy 2020-09-20
+ * # target_id
+ */
 	itn = it_nexus_lookup(tid, itn_id);
 	if (!itn) {
 		eprintf("invalid nexus %d %" PRIx64 "\n", tid, itn_id);
@@ -1126,11 +1160,17 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 	dprintf("%p %x %" PRIx64 "\n", cmd, cmd->scb[0], dev_id);
 	cmd->dev = device_lookup(target, dev_id);
 	/* use LUN0 */
+/** comment by hy 2020-09-20
+ * # 根据协议第一个lun0,从中获取设备等信息
+ */
 	if (!cmd->dev)
 		cmd->dev = list_first_entry(&target->device_list,
 					    struct scsi_lu,
 					    device_siblings);
 
+/** comment by hy 2020-09-20
+ * # 获取真的lun与后端设备信息
+ */
 	cmd->itn_lu_info = it_nexus_lu_info_lookup(itn, cmd->dev->lun);
 
 	/* service delivery or target failure */
@@ -1147,6 +1187,9 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 	 * Call struct scsi_lu->cmd_perform() that will either be setup for
 	 * internal or passthrough CDB processing using 2 functions below.
 	 */
+/** comment by hy 2020-09-20
+ * # 调用命令执行
+ */
 	return cmd->dev->cmd_perform(tid, cmd);
 }
 
@@ -1165,6 +1208,10 @@ int target_cmd_perform(int tid, struct scsi_cmd *cmd)
 		enabled);
 
 	if (enabled) {
+/** comment by hy 2020-09-20
+ * # 除了感知，就是调用末端驱动的 cmd_perform
+     这里以 ceph 为例
+ */
 		result = scsi_cmd_perform(cmd->it_nexus->host_no, cmd);
 
 		cmd_post_perform(q, cmd);

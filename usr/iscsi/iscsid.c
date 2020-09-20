@@ -1384,6 +1384,9 @@ static int iscsi_target_cmd_queue(struct iscsi_task *task)
 	scmd->tag = req->itt;
 	set_task_in_scsi(task);
 
+/** comment by hy 2020-09-20
+ * # 处理命令
+ */
 	err = target_cmd_queue(conn->session->target->tid, scmd);
 	if (err)
 		clear_task_in_scsi(task);
@@ -1397,6 +1400,9 @@ int iscsi_scsi_cmd_execute(struct iscsi_task *task)
 	struct iscsi_cmd *req = (struct iscsi_cmd *) &task->req;
 	int ret = 0;
 
+/** comment by hy 2020-09-20
+ * # 写
+ */
 	if ((req->flags & ISCSI_FLAG_CMD_WRITE) && task->r2t_count) {
 		if (!task->unsol_count)
 			list_add_tail(&task->c_list, &task->conn->tx_clist);
@@ -1558,7 +1564,9 @@ static int iscsi_data_out_rx_done(struct iscsi_task *task)
 	} else {
 		if (!(hdr->flags & ISCSI_FLAG_CMD_FINAL))
 			return err;
-
+/** comment by hy 2020-09-20
+ * # 核心逻辑
+ */
 		err = iscsi_scsi_cmd_execute(task);
 	}
 
@@ -1744,6 +1752,9 @@ static int iscsi_task_rx_done(struct iscsi_connection *conn)
 		err = iscsi_task_queue(task);
 		break;
 	case ISCSI_OP_SCSI_DATA_OUT:
+/** comment by hy 2020-09-20
+ * # 数据处理
+ */
 		err = iscsi_data_out_rx_done(task);
 		break;
 	case ISCSI_OP_TEXT:
@@ -2076,7 +2087,12 @@ void iscsi_rx_handler(struct iscsi_connection *conn)
 	int ret = 0, hdigest, ddigest;
 	uint32_t crc;
 
-
+/** comment by hy 2020-09-19
+ * # IOSTATE_RX_BHS ->IOSTATE_RX_INIT_AHS
+                                          ->IOSTATE_RX_INIT_HDIGEST
+     I                                    ->OSTATE_RX_INIT_DATA
+                                          ->IOSTATE_RX_AHS
+ */
 	if (conn->state == STATE_SCSI) {
 		struct param *p = conn->session_param;
 		hdigest = p[ISCSI_PARAM_HDRDGST_EN].val & DIGEST_CRC32C;
@@ -2218,6 +2234,9 @@ again:
 		exit(1);
 	}
 
+/** comment by hy 2020-09-20
+ * # 核心逻辑io 流
+ */
 	if (conn->state == STATE_SCSI) {
 		ret = iscsi_task_rx_done(conn);
 		if (ret)
@@ -2227,6 +2246,9 @@ again:
 	} else {
 		conn_write_pdu(conn);
 		conn->tp->ep_event_modify(conn, EPOLLOUT);
+/** comment by hy 2020-09-20
+ * # 命令处理
+ */
 		ret = cmnd_execute(conn);
 		if (ret)
 			conn->state = STATE_CLOSE;

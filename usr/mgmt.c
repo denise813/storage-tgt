@@ -241,8 +241,14 @@ static tgtadm_err device_mgmt(int lld_no, struct mgmt_task *mtask)
 	char *params = mtask->req_buf;
 	tgtadm_err adm_err = TGTADM_UNSUPPORTED_OPERATION;
 
+/** comment by hy 2020-09-20
+ * # 设备关联的全局链表 target_list
+ */
 	switch (req->op) {
 	case OP_NEW:
+/** comment by hy 2020-09-20
+ * # 创建设备
+ */
 		eprintf("sz:%d params:%s\n",mtask->req_bsize,params);
 		adm_err = tgt_device_create(req->tid, req->device_type, req->lun,
 					    params, 1);
@@ -507,6 +513,9 @@ static tgtadm_err mtask_execute(struct mgmt_task *mtask)
 		adm_err = sys_mgmt(lld_no, mtask);
 		break;
 	case MODE_TARGET:
+/** comment by hy 2020-09-20
+ * # 后端设备的创建等行为
+ */
 		adm_err = target_mgmt(lld_no, mtask);
 		break;
 	case MODE_PORTAL:
@@ -634,6 +643,9 @@ static void mtask_recv_send_handler(int fd, int events, void *data)
 			if (mtask->done == sizeof(*req)) {
 				mtask->req_bsize = req->len - sizeof(*req);
 				if (!mtask->req_bsize) {
+/** comment by hy 2020-09-20
+ * # 
+ */
 					err = mtask_received(mtask, fd);
 					if (err)
 						goto out;

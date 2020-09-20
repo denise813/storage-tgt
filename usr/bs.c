@@ -172,6 +172,9 @@ static void bs_thread_request_done(int fd, int events, void *data)
 		dprintf("back to tgtd, %p\n", cmd);
 
 		list_del(&cmd->bs_list);
+/** comment by hy 2020-09-19
+ * # 
+ */
 		target_cmd_io_done(cmd, scsi_get_result(cmd));
 	}
 
@@ -261,6 +264,9 @@ static int bs_init_signalfd(void)
 	int ret;
 	DIR *dir;
 
+/** comment by hy 2020-09-19
+ * # 后端目录
+ */
 	dir = opendir(BSDIR);
 	if (dir == NULL) {
 		/* not considered an error if there are no modules */
@@ -269,6 +275,9 @@ static int bs_init_signalfd(void)
 	} else {
 		struct dirent *dirent;
 		void *handle;
+/** comment by hy 2020-09-19
+ * # 读取插件目录
+ */
 		while ((dirent = readdir(dir))) {
 			char *soname;
 			void (*register_bs_module)(void);
@@ -299,6 +308,9 @@ static int bs_init_signalfd(void)
 				free(soname);
 				continue;
 			}
+/** comment by hy 2020-09-19
+ * # 加载其模块的注册方法
+ */
 			register_bs_module();
 			free(soname);
 		}
@@ -345,12 +357,18 @@ static int bs_init_notify_thread(void)
 		goto close_command_fd;
 	}
 
+/** comment by hy 2020-09-19
+ * # 放入完成,创建epool 对应的句柄,用于处理完成
+ */
 	ret = tgt_event_add(done_fd[0], EPOLLIN, bs_thread_request_done, NULL);
 	if (ret) {
 		eprintf("failed to add epoll event\n");
 		goto close_done_fd;
 	}
 
+/** comment by hy 2020-09-19
+ * # 应答,等待这个通知
+ */
 	ret = pthread_create(&ack_thread, NULL, bs_thread_ack_fn, NULL);
 	if (ret) {
 		eprintf("failed to create an ack thread, %s\n", strerror(ret));
@@ -382,12 +400,18 @@ int bs_init(void)
 {
 	int ret;
 
+/** comment by hy 2020-09-19
+ * # 这里调用了模块注册函数
+ */
 	ret = bs_init_signalfd();
 	if (!ret) {
 		eprintf("use signalfd notification\n");
 		return 0;
 	}
 
+/** comment by hy 2020-09-19
+ * # 启动通知线程,当完成进行通知,并且启动应答线程
+ */
 	ret = bs_init_notify_thread();
 	if (!ret) {
 		eprintf("use pthread notification\n");

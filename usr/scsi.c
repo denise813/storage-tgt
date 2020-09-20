@@ -489,11 +489,17 @@ int scsi_cmd_perform(int host_no, struct scsi_cmd *cmd)
 		 * We don't support ACA. SAM-3 and SAM-4 say that a
 		 * logical unit MAY support ACA.
 		 */
+/** comment by hy 2020-09-20
+ * # 
+ */
 		sense_data_build(cmd,
 				 ILLEGAL_REQUEST, ASC_INVALID_FIELD_IN_CDB);
 		return SAM_STAT_CHECK_CONDITION;
 	}
 
+/** comment by hy 2020-09-20
+ * # scsi 命令
+ */
 	if (cmd->dev->lun != cmd->dev_id) {
 		switch (op) {
 		case INQUIRY:
@@ -538,6 +544,17 @@ int scsi_cmd_perform(int host_no, struct scsi_cmd *cmd)
 		return SAM_STAT_CHECK_CONDITION;
 	}
 
+/** comment by hy 2020-09-20
+ * # 进行命令
+     dev_type_template 包括以下类型
+     sg_template
+     mmc_template
+     osd_template
+     sbc_template
+     scc_template
+     smc_template
+     ssc_template
+ */
 	return cmd->dev->dev_type_template.ops[op].cmd_perform(host_no, cmd);
 }
 
