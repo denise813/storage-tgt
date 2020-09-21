@@ -503,6 +503,9 @@ static int iscsi_tcp_conn_login_complete(struct iscsi_connection *conn)
 		if (target->tid != conn->tid)
 			continue;
 
+/** comment by hy 2020-09-22
+ * # 设置连接心跳间隔
+ */
 		tcp_conn->nop_count = target->nop_count;
 		tcp_conn->nop_interval = target->nop_interval;
 		tcp_conn->nop_tick = target->nop_interval;

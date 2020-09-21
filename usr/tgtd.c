@@ -450,6 +450,7 @@ retry:
 
 /** comment by hy 2020-09-19
  * # 事件监控
+     epoll将会把发生的事件复制到 events数组
  */
 	nevent = epoll_wait(ep_fd, events, ARRAY_SIZE(events), timeout);
 	if (nevent < 0) {
@@ -599,6 +600,9 @@ int main(int argc, char **argv)
 			is_daemon = 0;
 			break;
 		case 'C':
+/** comment by hy 2020-09-22
+ * # 控制端口
+ */
 			ret = str_to_int_ge(optarg, control_port, 0);
 			if (ret)
 				bad_optarg(ret, ch, optarg);

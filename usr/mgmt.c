@@ -247,7 +247,10 @@ static tgtadm_err device_mgmt(int lld_no, struct mgmt_task *mtask)
 	switch (req->op) {
 	case OP_NEW:
 /** comment by hy 2020-09-20
- * # 创建设备
+ * # 创建设备,这个device_type 代表着 磁盘类型，磁带库类型, raid类型等等
+     例如创建目标时我们这里选择为 raid类型,创建磁盘时，也就是lun0之后的
+     设备使用磁盘类型 TYPE_DISK
+     这个参数可以指定很多东西,比方 thinprovisioning
  */
 		eprintf("sz:%d params:%s\n",mtask->req_bsize,params);
 		adm_err = tgt_device_create(req->tid, req->device_type, req->lun,
@@ -508,6 +511,9 @@ static tgtadm_err mtask_execute(struct mgmt_task *mtask)
 		req->len, lld_no, req->mode, req->op,
 		req->tid, req->sid, req->lun, mtask->req_buf, getpid());
 
+/** comment by hy 2020-09-20
+ * # 管理的核心逻辑
+ */
 	switch (req->mode) {
 	case MODE_SYSTEM:
 		adm_err = sys_mgmt(lld_no, mtask);
@@ -522,6 +528,9 @@ static tgtadm_err mtask_execute(struct mgmt_task *mtask)
 		adm_err = portal_mgmt(lld_no, mtask);
 		break;
 	case MODE_DEVICE:
+/** comment by hy 2020-09-20
+ * # 创建设备
+ */
 		adm_err = device_mgmt(lld_no, mtask);
 		break;
 	case MODE_ACCOUNT:
@@ -614,6 +623,9 @@ static int mtask_received(struct mgmt_task *mtask, int fd)
 	tgtadm_err adm_err;
 	int err;
 
+/** comment by hy 2020-09-20
+ * # 处理管理事件核心逻辑
+ */
 	adm_err = mtask_execute(mtask);
 	set_mtask_result(mtask, adm_err);
 
@@ -644,7 +656,7 @@ static void mtask_recv_send_handler(int fd, int events, void *data)
 				mtask->req_bsize = req->len - sizeof(*req);
 				if (!mtask->req_bsize) {
 /** comment by hy 2020-09-20
- * # 
+ * # 接收管理事件
  */
 					err = mtask_received(mtask, fd);
 					if (err)
@@ -757,6 +769,9 @@ static void mgmt_event_handler(int accept_fd, int events, void *data)
 	if (!mtask)
 		goto out;
 
+/** comment by hy 2020-09-20
+ * # 管理实践处理函数
+ */
 	err = tgt_event_add(fd, EPOLLIN, mtask_recv_send_handler, mtask);
 	if (err) {
 		eprintf("failed to add a socket to epoll %d\n", fd);

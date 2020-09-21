@@ -547,13 +547,16 @@ int scsi_cmd_perform(int host_no, struct scsi_cmd *cmd)
 /** comment by hy 2020-09-20
  * # 进行命令
      dev_type_template 包括以下类型
-     sg_template
-     mmc_template
-     osd_template
-     sbc_template
-     scc_template
-     smc_template
-     ssc_template
+     TYPE_PT sg_template
+     TYPE_MMC mmc_template
+     TYPE_OSD osd_template
+     TYPE_DISK sbc_template
+     TYPE_RAID scc_template
+     TYPE_MEDIUM_CHANGER smc_template
+     TYPE_TAPE ssc_template
+
+     rbd 为例子 target_cmd_perform
+     TYPE_DISK sbc_template op = sbc_rw
  */
 	return cmd->dev->dev_type_template.ops[op].cmd_perform(host_no, cmd);
 }

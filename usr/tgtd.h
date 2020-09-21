@@ -196,6 +196,9 @@ struct registration {
 	uint8_t pr_type;
 };
 
+/** comment by hy 2020-09-23
+ * # 目标的逻辑磁盘信息
+ */
 struct scsi_lu {
 	int fd;
 	uint64_t addr; /* persistent mapped address */
@@ -206,6 +209,9 @@ struct scsi_lu {
 	unsigned int blk_shift;
 
 	/* the list of devices belonging to a target */
+/** comment by hy 2020-09-23
+ * # 设备信息
+ */
 	struct list_head device_siblings;
 
 	struct list_head lu_itl_info_list;

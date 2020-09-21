@@ -469,6 +469,9 @@ static void login_start(struct iscsi_connection *conn)
 	conn->auth_method = -1;
 	conn->session_type = SESSION_NORMAL;
 
+/** comment by hy 2020-09-22
+ * # 分成两个一个是检索,一个是一般登录过程
+ */
 	if (session_type) {
 		if (!strcmp(session_type, "Discovery"))
 			conn->session_type = SESSION_DISCOVERY;
@@ -491,6 +494,9 @@ static void login_start(struct iscsi_connection *conn)
 			return;
 		}
 
+/** comment by hy 2020-09-22
+ * # 查找后端目标
+ */
 		target = target_find_by_name(target_name);
 		if (!target) {
 			rsp->status_class = ISCSI_STATUS_CLS_INITIATOR_ERR;
@@ -498,6 +504,9 @@ static void login_start(struct iscsi_connection *conn)
 			conn->state = STATE_EXIT;
 			return;
 		}
+/** comment by hy 2020-09-22
+ * # rdma操作
+ */
 		if (target->rdma) {
 			eprintf("Target %s is RDMA, but conn cid:%d from %s is TCP\n",
 				target_name, conn->cid, conn->initiator);
@@ -698,6 +707,9 @@ static void cmnd_exec_login(struct iscsi_connection *conn)
 		switch (conn->state) {
 		case STATE_FREE:
 			conn->state = STATE_SECURITY;
+/** comment by hy 2020-09-22
+ * # 正常转态下进行登录
+ */
 			login_start(conn);
 			if (rsp->status_class)
 				return;
@@ -970,6 +982,9 @@ static int cmnd_execute(struct iscsi_connection *conn)
 	int res = 0;
 
 	switch (conn->req.bhs.opcode & ISCSI_OPCODE_MASK) {
+/** comment by hy 2020-09-22
+ * # log 处理sesion 操作
+ */
 	case ISCSI_OP_LOGIN:
 		cmnd_exec_login(conn);
 		conn->rsp.bhs.hlength = conn->rsp.ahssize / 4;
@@ -1410,6 +1425,9 @@ int iscsi_scsi_cmd_execute(struct iscsi_task *task)
 	}
 
 	task->offset = 0;  /* for use as transmit pointer for data-ins */
+/** comment by hy 2020-09-21
+ * # scsi 命令行开始进行转换
+ */
 	ret = iscsi_target_cmd_queue(task);
 no_queuing:
 	conn->tp->ep_event_modify(conn, EPOLLIN | EPOLLOUT);
@@ -1749,6 +1767,9 @@ static int iscsi_task_rx_done(struct iscsi_connection *conn)
 	case ISCSI_OP_NOOP_OUT:
 	case ISCSI_OP_SCSI_TMFUNC:
 	case ISCSI_OP_LOGOUT:
+/** comment by hy 2020-09-22
+ * # 处理命令
+ */
 		err = iscsi_task_queue(task);
 		break;
 	case ISCSI_OP_SCSI_DATA_OUT:
@@ -1777,11 +1798,17 @@ static int iscsi_task_rx_start(struct iscsi_connection *conn)
 
 	op = hdr->opcode & ISCSI_OPCODE_MASK;
 	switch (op) {
+/** comment by hy 2020-09-21
+ * # 客户端的命令处理
+ */
 	case ISCSI_OP_SCSI_CMD:
 		err = iscsi_scsi_cmd_rx_start(conn);
 		if (!err)
 			conn->exp_stat_sn = be32_to_cpu(hdr->exp_statsn);
 		break;
+/** comment by hy 2020-09-21
+ * # 数据处理
+ */
 	case ISCSI_OP_SCSI_DATA_OUT:
 		err = iscsi_data_out_rx_start(conn);
 		if (!err)
@@ -2238,6 +2265,9 @@ again:
  * # 核心逻辑io 流
  */
 	if (conn->state == STATE_SCSI) {
+/** comment by hy 2020-09-20
+ * # 处理 iscsi 数据相关的 任务 logout 也是和数据相关的任务
+ */
 		ret = iscsi_task_rx_done(conn);
 		if (ret)
 			conn->state = STATE_CLOSE;
@@ -2247,7 +2277,7 @@ again:
 		conn_write_pdu(conn);
 		conn->tp->ep_event_modify(conn, EPOLLOUT);
 /** comment by hy 2020-09-20
- * # 命令处理
+ * # 客户端 命令处理 如登陆
  */
 		ret = cmnd_execute(conn);
 		if (ret)
