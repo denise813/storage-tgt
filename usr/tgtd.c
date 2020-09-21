@@ -450,6 +450,7 @@ retry:
 
 /** comment by hy 2020-09-19
  * # 事件监控
+     epoll将会把发生的事件复制到 events数组
  */
 	nevent = epoll_wait(ep_fd, events, ARRAY_SIZE(events), timeout);
 	if (nevent < 0) {

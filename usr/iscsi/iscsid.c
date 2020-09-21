@@ -1410,6 +1410,9 @@ int iscsi_scsi_cmd_execute(struct iscsi_task *task)
 	}
 
 	task->offset = 0;  /* for use as transmit pointer for data-ins */
+/** comment by hy 2020-09-21
+ * # scsi 命令行开始进行转换
+ */
 	ret = iscsi_target_cmd_queue(task);
 no_queuing:
 	conn->tp->ep_event_modify(conn, EPOLLIN | EPOLLOUT);
@@ -1777,11 +1780,17 @@ static int iscsi_task_rx_start(struct iscsi_connection *conn)
 
 	op = hdr->opcode & ISCSI_OPCODE_MASK;
 	switch (op) {
+/** comment by hy 2020-09-21
+ * # 客户端的命令处理
+ */
 	case ISCSI_OP_SCSI_CMD:
 		err = iscsi_scsi_cmd_rx_start(conn);
 		if (!err)
 			conn->exp_stat_sn = be32_to_cpu(hdr->exp_statsn);
 		break;
+/** comment by hy 2020-09-21
+ * # 数据处理
+ */
 	case ISCSI_OP_SCSI_DATA_OUT:
 		err = iscsi_data_out_rx_start(conn);
 		if (!err)
@@ -2238,6 +2247,9 @@ again:
  * # 核心逻辑io 流
  */
 	if (conn->state == STATE_SCSI) {
+/** comment by hy 2020-09-20
+ * # 处理 iscsi 任务
+ */
 		ret = iscsi_task_rx_done(conn);
 		if (ret)
 			conn->state = STATE_CLOSE;
@@ -2247,7 +2259,7 @@ again:
 		conn_write_pdu(conn);
 		conn->tp->ep_event_modify(conn, EPOLLOUT);
 /** comment by hy 2020-09-20
- * # 命令处理
+ * # 客户端 命令处理 如登陆
  */
 		ret = cmnd_execute(conn);
 		if (ret)

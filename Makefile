@@ -1,7 +1,5 @@
 VERSION ?= 1.0.79
 
-export CEPH_RBD=1
-
 CHECK_CC = cgcc
 CHECK_CC_FLAGS = '$(CHECK_CC) -Wbitwise -Wno-return-void -no-compile $(ARCH)'
 
@@ -12,8 +10,8 @@ PREFIX ?= /usr
 export VERSION PREFIX
 
 # Export the feature switches so sub-make knows about them
-export ISCSI_RDMA
-export CEPH_RBD 1
+export ISCSI_RDMA=1
+export CEPH_RBD=1
 export GLFS_BD
 export SD_NOTIFY
 

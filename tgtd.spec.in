@@ -18,7 +18,7 @@ Requires(post): chkconfig
 Requires(preun): chkconfig
 Requires(preun): initscripts
 %endif
-Requires: lsof sg3_utils
+Requires: perl-Config-General lsof sg3_utils
 ExcludeArch:    s390 s390x
 
 %description
@@ -27,12 +27,12 @@ Currently, software iSCSI targets are supported.
 
 
 %build
-pushd @CEPH_SOURCE@
-%{__make} %{?_smp_mflags} ISCSI_RDMA=1
+pushd @TGTD_SOURCE@
+%{__make} %{?_smp_mflags} ISCSI_RDMA=1 CEPH_RBD=1
 popd
 
 %install
-pushd @CEPH_SOURCE@
+pushd @TGTD_SOURCE@
 %{__rm} -rf %{buildroot}
 %{__install} -d %{buildroot}%{_sbindir}
 %{__install} -d %{buildroot}%{_mandir}/man5
@@ -40,6 +40,7 @@ pushd @CEPH_SOURCE@
 %{__install} -d %{buildroot}%{_initrddir}
 %{__install} -d %{buildroot}/etc/bash_completion.d
 %{__install} -d %{buildroot}/etc/tgt
+%{__install} -d %{buildroot}/usr/lib/tgt/backing-store
 
 %{__install} -p -m 0755 scripts/tgt-setup-lun %{buildroot}%{_sbindir}
 %{__install} -p -m 0755 scripts/initd.sample %{buildroot}%{_initrddir}/tgtd
@@ -50,6 +51,7 @@ pushd @CEPH_SOURCE@
 #%{__install} -p -m 0644 doc/manpages/tgt-admin.8 %{buildroot}/%{_mandir}/man8
 #%{__install} -p -m 0644 doc/manpages/tgt-setup-lun.8 %{buildroot}/%{_mandir}/man8
 #%{__install} -p -m 0644 doc/manpages/tgtimg.8 %{buildroot}/%{_mandir}/man8
+%{__install} -p -m 0600 usr/bs_rbd.so %{buildroot}/usr/lib/tgt/backing-store/bs_rbd.so
 %{__install} -p -m 0600 conf/targets.conf %{buildroot}/etc/tgt
 
 pushd usr
@@ -84,6 +86,6 @@ fi
 %{_sbindir}/tgtimg
 #%{_mandir}/man5/*
 #%{_mandir}/man8/*
-%{_initrddir}/tgtd
+%attr(0755,root,root) /usr/lib/tgt/backing-store/bs_rbd.so
 /etc/bash_completion.d/tgt
 %attr(0600,root,root) %config(noreplace) /etc/tgt/targets.conf

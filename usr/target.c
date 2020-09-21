@@ -498,6 +498,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 
 	dprintf("%d %" PRIu64 "\n", tid, lun);
 
+/** comment by hy 2020-09-20
+ * # 根据设置的参数获取其对应的 操作行为
+ */
 	while ((p = strsep(&params, ",")) != NULL) {
 		substring_t args[MAX_OPT_ARGS];
 		int token;
@@ -525,12 +528,18 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		}
 	}
 
+/** comment by hy 2020-09-20
+ * # 查找目标
+ */
 	target = target_lookup(tid);
 	if (!target) {
 		adm_err = TGTADM_NO_TARGET;
 		goto out;
 	}
 
+/** comment by hy 2020-09-20
+ * # 查找后端设备
+ */
 	lu = device_lookup(target, lun);
 	if (lu) {
 		eprintf("device %" PRIu64 " already exists\n", lun);
@@ -540,10 +549,16 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 
 /** comment by hy 2020-09-20
  * # 设备模板
+     在创建 target 时候 第一个是特殊的,对应的 backing = 0
+     
+     创建  target 的时候为什么是null
  */
 	bst = target->bst;
 	if (backing) {
 		if (bstype) {
+/** comment by hy 2020-09-20
+ * # 选择对饮的驱动的后端存储引擎
+ */
 			bst = get_backingstore_template(bstype);
 			if (!bst) {
 				eprintf("failed to find bstype, %s\n", bstype);
@@ -555,7 +570,7 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		bst = get_backingstore_template("null");
 
 /** comment by hy 2020-09-20
- * # 设备类型 
+ * # 设备类型 创建 目标是 选择了 TYPE_RAID = 12
  */
 	if ((!strncmp(bst->bs_name, "bsg", 3) ||
 	     !strncmp(bst->bs_name, "sg", 2)) &&
@@ -574,6 +589,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		goto out;
 	}
 
+/** comment by hy 2020-09-20
+ * # 参数中获得信息
+ */
 	if (bsoflags) {
 		lu_bsoflags = str_to_open_flags(bsoflags);
 		if (lu_bsoflags == -1) {
@@ -594,13 +612,13 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 
 /** comment by hy 2020-09-20
  * # dev_type_template 包括以下类型
-     sg_template
-     mmc_template
-     osd_template
-     sbc_template
-     scc_template
-     smc_template
-     ssc_template
+     TYPE_PT sg_template
+     TYPE_MMC mmc_template
+     TYPE_OSD osd_template
+     TYPE_DISK sbc_template
+     TYPE_RAID scc_template
+     TYPE_MEDIUM_CHANGER smc_template
+     TYPE_TAPE ssc_template
  */
 	t = device_type_lookup(dev_type);
 	if (!t) {
@@ -625,7 +643,8 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 	lu->bsoflags = lu_bsoflags;
 
 /** comment by hy 2020-09-20
- * # 初始化设备对应的队列
+ * # 初始化设备对应的队列,可以在设个地方修改队列?
+     命令就让命令自己玩吧
  */
 	tgt_cmd_queue_init(&lu->cmd_queue);
 	INIT_LIST_HEAD(&lu->registration_list);
@@ -660,12 +679,20 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 		}
 	}
 
+/** comment by hy 2020-09-21
+ * # 下面对于创建磁盘时，使用的为
+     TYPE_DISK sbc_template 中的 sbc_lu_init
+ */
 	if (lu->dev_type_template.lu_init) {
 		adm_err = lu->dev_type_template.lu_init(lu);
 		if (adm_err)
 			goto fail_lu_init;
 	}
 
+/** comment by hy 2020-09-21
+ * # 这里开始调用后端存储引擎驱动的初始化函数,很多东西是不是可以放在target 上进行?
+     以 rbd 为例子 bs_rbd_init
+ */
 	if (lu->bst->bs_init) {
 		if (bsopts)
 			dprintf("bsopts=%s\n", bsopts);
@@ -685,6 +712,10 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 			goto fail_bs_init;
 	}
 
+/** comment by hy 2020-09-21
+ * # 建立设备
+     对于第一个设备为 scc_lu_init
+ */
 	if (tgt_drivers[target->lid]->lu_create)
 		tgt_drivers[target->lid]->lu_create(lu);
 
@@ -694,6 +725,9 @@ tgtadm_err tgt_device_create(int tid, int dev_type, uint64_t lun, char *params,
 	}
 	list_add_tail(&lu->device_siblings, &pos->device_siblings);
 
+/** comment by hy 2020-09-21
+ * # 建立关系
+ */
 	list_for_each_entry(itn, &target->it_nexus_list, nexus_siblings) {
 		itn_lu = zalloc(sizeof(*itn_lu));
 		if (!itn_lu)
@@ -1144,7 +1178,8 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 	uint64_t dev_id, itn_id = cmd->cmd_itn_id;
 
 /** comment by hy 2020-09-20
- * # target_id
+ * # 先找到 从 target_id 到 it_nexus 之间的关系
+     指 session 的 initiator 端和 iSCSI target 网络端口组之间的关系
  */
 	itn = it_nexus_lookup(tid, itn_id);
 	if (!itn) {
@@ -1155,6 +1190,9 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 	cmd->c_target = target = itn->nexus_target;
 	cmd->it_nexus = itn;
 
+/** comment by hy 2020-09-21
+ * # 获取lun 对应的设备信息
+ */
 	dev_id = scsi_get_devid(target->lid, cmd->lun);
 	cmd->dev_id = dev_id;
 	dprintf("%p %x %" PRIx64 "\n", cmd, cmd->scb[0], dev_id);
@@ -1169,7 +1207,7 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 					    device_siblings);
 
 /** comment by hy 2020-09-20
- * # 获取真的lun与后端设备信息
+ * # 获取真的lun与后端设备信息,重对应的会话关系中找到对应的lu 信息
  */
 	cmd->itn_lu_info = it_nexus_lu_info_lookup(itn, cmd->dev->lun);
 
@@ -1189,6 +1227,7 @@ int target_cmd_queue(int tid, struct scsi_cmd *cmd)
 	 */
 /** comment by hy 2020-09-20
  * # 调用命令执行
+     在其调用 注册设备初始化了 target_cmd_perform
  */
 	return cmd->dev->cmd_perform(tid, cmd);
 }
@@ -2207,6 +2246,9 @@ tgtadm_err tgt_target_create(int lld, int tid, char *args)
 		return TGTADM_TARGET_EXIST;
 	}
 
+/** comment by hy 2020-09-20
+ * # default_bst = "rdwr"
+ */
 	bst = get_backingstore_template(tgt_drivers[lld]->default_bst);
 	if (!bst)
 		return TGTADM_INVALID_REQUEST;
@@ -2229,6 +2271,9 @@ tgtadm_err tgt_target_create(int lld, int tid, char *args)
 	}
 	target->account.max_inaccount = DEFAULT_NR_ACCOUNT;
 
+/** comment by hy 2020-09-20
+ * # 指定的 target_id
+ */
 	target->tid = tid;
 
 	INIT_LIST_HEAD(&target->device_list);
@@ -2236,8 +2281,14 @@ tgtadm_err tgt_target_create(int lld, int tid, char *args)
 	target->bst = bst;
 
 	target->target_state = SCSI_TARGET_READY;
+/** comment by hy 2020-09-20
+ * # 后端启动号
+ */
 	target->lid = lld;
 
+/** comment by hy 2020-09-20
+ * # 排序插入 target_siblings 其位置
+ */
 	list_for_each_entry(pos, &target_list, target_siblings)
 		if (target->tid < pos->tid)
 			break;
@@ -2248,6 +2299,9 @@ tgtadm_err tgt_target_create(int lld, int tid, char *args)
 	INIT_LIST_HEAD(&target->iqn_acl_list);
 	INIT_LIST_HEAD(&target->it_nexus_list);
 
+/** comment by hy 2020-09-20
+ * # 创建
+ */
 	tgt_device_create(tid, TYPE_RAID, 0, NULL, 0);
 
 	if (tgt_drivers[lld]->target_create)

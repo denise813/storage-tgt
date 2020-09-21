@@ -77,7 +77,8 @@ extern void log_debug(const char *fmt, ...)
 #ifdef NO_LOGGING
 #define eprintf(fmt, args...)						\
 do {									\
-	fprintf(stderr, "%s: " fmt, program_name, ##args);		\
+	fprintf(stderr, "%s(%d) " fmt,					\
+		__FUNCTION__, __LINE__, ##args);			\
 } while (0)
 
 #define dprintf(fmt, args...)						\

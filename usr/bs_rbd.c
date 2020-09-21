@@ -31,7 +31,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
+#include <pthread.h>
 #include <linux/fs.h>
 #include <sys/epoll.h>
 
@@ -45,12 +45,26 @@
 #include "rados/librados.h"
 #include "rbd/librbd.h"
 
+struct bs_list{
+	struct list_head list;
+	pthread_mutex_t lock;
+};
+
+struct active_cluster {
+	struct list_head list;
+	rados_t cluster;
+	int refnum;
+	char *cluster_name;
+};
 
 struct active_rbd {
 	char *poolname;
 	char *imagename;
 	char *snapname;
-	rados_t cluster;
+/* modify begin by hy, 2020-09-21, BugId:123 原因: 修改 tgt中集群信息将其句柄放在集群列表中 */
+	//rados_t cluster;
+	char *cluster;
+/* modify end by hy, 2020-09-21 */
 	rados_ioctx_t ioctx;
 	rbd_image_t rbd_image;
 };
@@ -61,6 +75,13 @@ struct active_rbd {
 				sizeof(struct scsi_lu) + \
 				sizeof(struct bs_thread_info)) \
 			)
+
+/* modify begin by hy, 2020-09-21, BugId:123 原因: 将设备的线程移动到统一调度处理 */
+struct bs_thread_info bs_info;
+/* modify end by hy, 2020-09-21 */
+/* modify begin by hy, 2020-09-21, BugId:123 原因: */
+struct bs_list cluster_list;
+/* modify end by hy, 2020-09-21 */
 
 static void parse_imagepath(char *path, char **pool, char **image, char **snap)
 {
@@ -95,6 +116,222 @@ static void set_medium_error(int *result, uint8_t *key, uint16_t *asc)
 	*key = MEDIUM_ERROR;
 	*asc = ASC_READ_ERROR;
 }
+
+static int is_opt(const char *opt, char *p)
+{
+	int ret = 0;
+	if ((strncmp(p, opt, strlen(opt)) == 0) &&
+	    (p[strlen(opt)] == '=')) {
+		ret = 1;
+	}
+	return ret;
+}
+
+// Slurp up and return a copy of everything to the next ';', and update p
+static char *slurp_to_semi(char **p)
+{
+	char *end = index(*p, ';');
+	char *ret = NULL;
+	int len;
+
+	if (end == NULL)
+		end = *p + strlen(*p);
+	len = end - *p;
+	ret = malloc(len + 1);
+	strncpy(ret, *p, len);
+	ret[len] = '\0';
+	*p = end;
+	/* Jump past the semicolon, if we stopped at one */
+	if (**p == ';')
+		*p = end + 1;
+	return ret;
+}
+
+static char *slurp_value(char **p)
+{
+	char *equal = index(*p, '=');
+	if (equal) {
+		*p = equal + 1;
+		return slurp_to_semi(p);
+	} else {
+		// uh...no?
+		return NULL;
+	}
+}
+
+static struct active_cluster * lookup_cluster(char * cluster_name)
+{
+	struct active_cluster *cluster = NULL;
+	struct active_cluster *pos = NULL;
+
+	list_for_each_entry(pos, &cluster_list.list, list) {
+		if (pos->cluster_name == cluster_name &&
+				cluster->refnum > 0) {
+			cluster = pos;
+			break;
+		}
+	}
+
+	return cluster;
+}
+
+static struct active_cluster * get_cluster(char *bsopts)
+{
+	int rados_ret = 0;
+	char clientid_full[128];
+	char * cluster_name = NULL;
+	char *ignore = NULL;
+	char *confname = NULL;
+	char *clientid = NULL;
+	char *virsecretuuid = NULL;
+	char *given_cephx_key = NULL;
+	char disc_cephx_key[256];
+	struct active_cluster *cluster = NULL;
+	struct active_cluster *pos = NULL;
+	struct active_cluster *next = NULL;
+
+	// look for conf= or id= or cluster=
+	while (bsopts && strlen(bsopts)) {
+		if (is_opt("conf", bsopts))
+			confname = slurp_value(&bsopts);
+		else if (is_opt("id", bsopts))
+			clientid = slurp_value(&bsopts);
+		else if (is_opt("cluster", bsopts))
+			cluster_name = slurp_value(&bsopts);
+		else if (is_opt("virsecretuuid", bsopts))
+			virsecretuuid = slurp_value(&bsopts);
+		else if (is_opt("cephx_key", bsopts))
+			given_cephx_key = slurp_value(&bsopts);
+		else {
+			ignore = slurp_to_semi(&bsopts);
+			eprintf("bs_rbd: ignoring unknown option \"%s\"\n",
+				ignore);
+			free(ignore);
+			break;
+		}
+	}
+
+	eprintf("bs_rbd_init bsopts=%s\n", bsopts);
+
+	if (!cluster_name)
+		cluster_name = "ceph";
+
+	list_for_each_entry_safe(pos, next, &cluster_list.list, list) {
+		if (pos->cluster_name == cluster_name) {
+			cluster = pos;
+			goto l_out;
+		}
+	}
+
+	cluster = malloc(sizeof(struct active_cluster));
+	if (!cluster) {
+		rados_ret  = -ENOMEM;
+		goto l_out;
+	}
+	/*
+	 * Read config from environment, then conf file(s) which may
+	 * be set by conf=
+	 */
+	rados_ret = rados_conf_parse_env(&(cluster->cluster), NULL);
+	if (rados_ret < 0) {
+		eprintf("bs_rbd_init: rados_conf_parse_env: %d\n", rados_ret);
+		goto l_free_cluster;
+	}
+	rados_ret = rados_conf_read_file(&(cluster->cluster), confname);
+	if (rados_ret < 0) {
+		eprintf("bs_rbd_init: rados_conf_read_file: %d\n", rados_ret);
+		goto l_free_cluster;
+	}
+
+	/* Set given key */
+	if (virsecretuuid) {
+		if (rados_conf_set(&(cluster->cluster), "key", disc_cephx_key) < 0) {
+			eprintf("bs_rbd_init: failed to set cephx_key: %s\n",
+				disc_cephx_key);
+			goto l_free_cluster;
+		}
+	}
+	if (given_cephx_key) {
+		if (rados_conf_set(&(cluster->cluster), "key", given_cephx_key) < 0) {
+			eprintf("bs_rbd_init: failed to set cephx_key: %s\n",
+				given_cephx_key);
+			goto l_free_cluster;
+		}
+	}
+
+	INIT_LIST_HEAD(&cluster->list);
+	rados_ret = rados_create2(&(cluster->cluster), cluster_name,
+				  clientid_full, 0);
+	if (rados_ret < 0) {
+		eprintf("get_cluster: rados_create2: %d\n", rados_ret);
+		goto l_free_cluster;
+	}
+
+/** comment by hy 2020-09-21
+ * # 前面已经拷贝了
+ */
+	cluster->cluster_name = cluster_name;
+	
+	if (confname)
+		free(confname);
+	if (clientid)
+		free(clientid);
+	if (virsecretuuid)
+		free(virsecretuuid);
+	if (given_cephx_key)
+		free(given_cephx_key);
+
+	cluster->refnum++;
+	list_add_tail(&cluster->list, &cluster_list.list);
+
+l_out:
+	return cluster;
+
+l_free_cluster:
+	if (cluster)
+		free(cluster);
+	if (confname)
+		free(confname);
+	if (clientid)
+		free(clientid);
+	if (virsecretuuid)
+		free(virsecretuuid);
+	if (given_cephx_key)
+		free(given_cephx_key);
+	goto l_out;
+}
+
+static void put_cluster(char * cluster_name)
+{
+	int ret = 0;
+	struct active_cluster *cluster = NULL;
+	struct active_cluster *pos = NULL;
+	struct active_cluster *next = NULL;
+
+	list_for_each_entry_safe(pos, next, &cluster_list.list, list) {
+		if (pos->cluster_name == cluster_name) {
+			list_del_init(&cluster->list);
+			cluster = pos;
+			break;
+		}
+	}
+	if (!cluster) {
+		ret = -ENOENT;
+		eprintf("delete_cluster: lookup_cluster: %d\n", ret);
+		goto l_out;
+	}
+
+	cluster->refnum--;
+
+	if (cluster->refnum == 0) {
+		rados_shutdown(cluster->cluster);
+		free(cluster->cluster_name);
+	}
+
+l_out:
+	return;
+}
+
 
 static void bs_sync_sync_range(struct scsi_cmd *cmd, uint32_t length,
 			       int *result, uint8_t *key, uint16_t *asc)
@@ -134,6 +371,9 @@ static void bs_rbd_request(struct scsi_cmd *cmd)
 	struct active_rbd *rbd = RBDP(cmd->dev);
 
 	switch (cmd->scb[0]) {
+/** comment by hy 2020-09-21
+ * # 16 8个byte 大容量的写
+ */
 	case ORWRITE_16:
 		length = scsi_get_out_length(cmd);
 
@@ -412,16 +652,16 @@ verify:
 	}
 }
 
-
 static int bs_rbd_open(struct scsi_lu *lu, char *path, int *fd, uint64_t *size)
 {
 	uint32_t blksize = 0;
-	int ret;
+	int ret = 0;
 	rbd_image_info_t inf;
 	char *poolname;
 	char *imagename;
 	char *snapname;
 	struct active_rbd *rbd = RBDP(lu);
+	struct active_cluster *cluster = NULL;
 
 	parse_imagepath(path, &poolname, &imagename, &snapname);
 
@@ -431,7 +671,14 @@ static int bs_rbd_open(struct scsi_lu *lu, char *path, int *fd, uint64_t *size)
 	eprintf("bs_rbd_open: pool: %s image: %s snap: %s\n",
 		poolname, imagename, snapname);
 
-	ret = rados_ioctx_create(rbd->cluster, poolname, &rbd->ioctx);
+	cluster = lookup_cluster(rbd->cluster);
+	if (!cluster) {
+		ret = -ENOENT;
+		eprintf("bs_rbd_open: lookup_cluster: %d\n", ret);
+		return ret;
+	}
+	
+	ret = rados_ioctx_create(cluster->cluster, poolname, &rbd->ioctx);
 	if (ret < 0) {
 		eprintf("bs_rbd_open: rados_ioctx_create: %d\n", ret);
 		return -EIO;
@@ -466,211 +713,76 @@ static void bs_rbd_close(struct scsi_lu *lu)
 	}
 }
 
-// Slurp up and return a copy of everything to the next ';', and update p
-static char *slurp_to_semi(char **p)
-{
-	char *end = index(*p, ';');
-	char *ret;
-	int len;
-
-	if (end == NULL)
-		end = *p + strlen(*p);
-	len = end - *p;
-	ret = malloc(len + 1);
-	strncpy(ret, *p, len);
-	ret[len] = '\0';
-	*p = end;
-	/* Jump past the semicolon, if we stopped at one */
-	if (**p == ';')
-		*p = end + 1;
-	return ret;
-}
-
-static char *slurp_value(char **p)
-{
-	char *equal = index(*p, '=');
-	if (equal) {
-		*p = equal + 1;
-		return slurp_to_semi(p);
-	} else {
-		// uh...no?
-		return NULL;
-	}
-}
-
-static int is_opt(const char *opt, char *p)
-{
-	int ret = 0;
-	if ((strncmp(p, opt, strlen(opt)) == 0) &&
-	    (p[strlen(opt)] == '=')) {
-		ret = 1;
-	}
-	return ret;
-}
-
-
 static tgtadm_err bs_rbd_init(struct scsi_lu *lu, char *bsopts)
 {
-	struct bs_thread_info *info = BS_THREAD_I(lu);
+/* modify begin by hy, 2020-09-21, BugId:123 原因: */
+/* modify end by hy, 2020-09-21 */
 	tgtadm_err ret = TGTADM_UNKNOWN_ERR;
 	int rados_ret;
 	struct active_rbd *rbd = RBDP(lu);
-	char *confname = NULL;
-	char *clientid = NULL;
-	char *virsecretuuid = NULL;
-	char *given_cephx_key = NULL;
-	char disc_cephx_key[256];
-	char *clustername = NULL;
-	char clientid_full[128];
-	char *ignore = NULL;
+	struct active_cluster *cluster = NULL;
 
 	dprintf("bs_rbd_init bsopts: \"%s\"\n", bsopts);
 
-	// look for conf= or id= or cluster=
-
-	while (bsopts && strlen(bsopts)) {
-		if (is_opt("conf", bsopts))
-			confname = slurp_value(&bsopts);
-		else if (is_opt("id", bsopts))
-			clientid = slurp_value(&bsopts);
-		else if (is_opt("cluster", bsopts))
-			clustername = slurp_value(&bsopts);
-		else if (is_opt("virsecretuuid", bsopts))
-			virsecretuuid = slurp_value(&bsopts);
-		else if (is_opt("cephx_key", bsopts))
-			given_cephx_key = slurp_value(&bsopts);
-		else {
-			ignore = slurp_to_semi(&bsopts);
-			eprintf("bs_rbd: ignoring unknown option \"%s\"\n",
-				ignore);
-			free(ignore);
-			break;
-		}
-	}
-
-	if (clientid)
-		eprintf("bs_rbd_init: clientid %s\n", clientid);
-	if (confname)
-		eprintf("bs_rbd_init: confname %s\n", confname);
-	if (clustername)
-		eprintf("bs_rbd_init: clustername %s\n", clustername);
-	if (virsecretuuid)
-		eprintf("bs_rbd_init: virsecretuuid %s\n", virsecretuuid);
-	if (given_cephx_key)
-		eprintf("bs_rbd_init: given_cephx_key %s\n", given_cephx_key);
-
-	/* virsecretuuid && given_cephx_key are conflicting options. */
-	if (virsecretuuid && given_cephx_key) {
-		eprintf("Conflicting options virsecretuuid=[%s] cephx_key=[%s]",
-			virsecretuuid, given_cephx_key);
-		goto fail;
-	}
-
-	/* Get stored key from secret uuid. */
-	if (virsecretuuid) {
-		char libvir_uuid_file_path_buf[256] = "/etc/libvirt/secrets/";
-		strcat(libvir_uuid_file_path_buf, virsecretuuid);
-		strcat(libvir_uuid_file_path_buf, ".base64");
-
-		FILE *fp;
-		fp = fopen(libvir_uuid_file_path_buf , "r");
-		if (fp == NULL) {
-			eprintf("bs_rbd_init: Unable to read %s\n",
-				libvir_uuid_file_path_buf);
-			goto fail;
-		}
-		if (fgets(disc_cephx_key, 256, fp) == NULL) {
-			eprintf("bs_rbd_init: Unable to read %s\n",
-				libvir_uuid_file_path_buf);
-			goto fail;
-		}
-		fclose(fp);
-		strtok(disc_cephx_key, "\n");
-
-		eprintf("bs_rbd_init: disc_cephx_key %s\n", disc_cephx_key);
-	}
-
-	eprintf("bs_rbd_init bsopts=%s\n", bsopts);
 	/*
 	 * clientid may be set by -i/--id. If clustername is set, then
 	 * we use rados_create2, else rados_create
 	 */
-	if (clustername) {
-		/* rados_create2 wants the full client name */
-		if (clientid)
-			snprintf(clientid_full, sizeof clientid_full,
-				 "client.%s", clientid);
-		else /* if not specified, default to client.admin */
-			snprintf(clientid_full, sizeof clientid_full,
-				 "client.admin");
-		rados_ret = rados_create2(&rbd->cluster, clustername,
-					  clientid_full, 0);
-	} else {
-		rados_ret = rados_create(&rbd->cluster, clientid);
-	}
-	if (rados_ret < 0) {
-		eprintf("bs_rbd_init: rados_create: %d\n", rados_ret);
-		return ret;
-	}
 
-	/*
-	 * Read config from environment, then conf file(s) which may
-	 * be set by conf=
-	 */
-	rados_ret = rados_conf_parse_env(rbd->cluster, NULL);
-	if (rados_ret < 0) {
-		eprintf("bs_rbd_init: rados_conf_parse_env: %d\n", rados_ret);
-		goto fail;
-	}
-	rados_ret = rados_conf_read_file(rbd->cluster, confname);
-	if (rados_ret < 0) {
-		eprintf("bs_rbd_init: rados_conf_read_file: %d\n", rados_ret);
+
+/** comment by hy 2020-09-21
+ * # 这里添加一个全局集群链表
+ */	
+	cluster = get_cluster(bsopts);
+	if (!cluster) {
+		rados_ret = -ENOMEM;
+		eprintf("bs_rbd_init: get_cluster: %d, bsopts(%s)\n",
+			rados_ret, bsopts);
 		goto fail;
 	}
 
-	/* Set given key */
-	if (virsecretuuid) {
-		if (rados_conf_set(rbd->cluster, "key", disc_cephx_key) < 0) {
-			eprintf("bs_rbd_init: failed to set cephx_key: %s\n",
-				disc_cephx_key);
-			goto fail;
-		}
-	}
-	if (given_cephx_key) {
-		if (rados_conf_set(rbd->cluster, "key", given_cephx_key) < 0) {
-			eprintf("bs_rbd_init: failed to set cephx_key: %s\n",
-				given_cephx_key);
-			goto fail;
-		}
-	}
+	rbd->cluster = cluster->cluster_name;
 
-	rados_ret = rados_connect(rbd->cluster);
-	if (rados_ret < 0) {
-		eprintf("bs_rbd_init: rados_connect: %d\n", rados_ret);
-		goto fail;
-	}
-	ret = bs_thread_open(info, bs_rbd_request, nr_iothreads);
+/* modify begin by hy, 2020-09-21, BugId:123 原因: */
+/** comment by hy 2020-09-21
+ * # 设备创建对应的线程,这里进行修改,将其移动到加载阶段,
+     即 register_bs_module 阶段
+ */
+	//ret = bs_thread_open(info, bs_rbd_request, nr_iothreads);
+/* modify end by hy, 2020-09-21 */
 fail:
-	if (confname)
-		free(confname);
-	if (clientid)
-		free(clientid);
-	if (virsecretuuid)
-		free(virsecretuuid);
-	if (given_cephx_key)
-		free(given_cephx_key);
-
+	if (cluster) {
+		put_cluster(cluster->cluster_name);
+		free(cluster);
+	}
 	return ret;
 }
 
 static void bs_rbd_exit(struct scsi_lu *lu)
 {
-	struct bs_thread_info *info = BS_THREAD_I(lu);
+/* modify begin by hy, 2020-09-21, BugId:123 原因: */
+	//struct bs_thread_info *info = BS_THREAD_I(lu);
+/* modify end by hy, 2020-09-21 */
 	struct active_rbd *rbd = RBDP(lu);
 
 	/* do this first to try to be sure there's no outstanding I/O */
-	bs_thread_close(info);
-	rados_shutdown(rbd->cluster);
+
+/* modify begin by hy, 2020-09-21, BugId:123 原因: */
+	//bs_thread_close(info);
+/* modify end by hy, 2020-09-21 */
+
+	put_cluster(rbd->cluster);
+}
+
+int bs_rbd_cmd_submit(struct scsi_cmd *cmd)
+{
+	pthread_mutex_lock(&bs_info.pending_lock);
+	list_add_tail(&cmd->bs_list, &bs_info.pending_list);
+	pthread_mutex_unlock(&bs_info.pending_lock);
+	pthread_cond_signal(&bs_info.pending_cond);
+	set_cmd_async(cmd);
+
+	return 0;
 }
 
 static struct backingstore_template rbd_bst = {
@@ -681,11 +793,30 @@ static struct backingstore_template rbd_bst = {
 	.bs_close		= bs_rbd_close,
 	.bs_init		= bs_rbd_init,
 	.bs_exit		= bs_rbd_exit,
-	.bs_cmd_submit		= bs_thread_cmd_submit,
+	.bs_cmd_submit		= bs_rbd_cmd_submit,
 	.bs_oflags_supported    = O_SYNC | O_DIRECT,
 };
 
+/** comment by hy 2020-09-21
+ * # 模块只注册,不卸载,在这添加一个卸载阶段,以便完成卸载对应的操作
+     现在就不卸载了
+ */
 void register_bs_module(void)
 {
+/** comment by hy 2020-09-21
+ * # 初始化集群链表结构
+ */
+	INIT_LIST_HEAD(&cluster_list.list);
+	pthread_mutex_init(&cluster_list.lock, NULL);
+/** comment by hy 2020-09-21
+ * # 注册后端存储引擎模板
+ */
 	register_backingstore_template(&rbd_bst);
+
+
+/** comment by hy 2020-09-21
+ * # 创建 bs 的线程组
+ */
+	bs_thread_open(&bs_info, bs_rbd_request, nr_iothreads);
+/* modify end by hy, 2020-09-21 */
 }

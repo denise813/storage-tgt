@@ -243,9 +243,15 @@ static void *bs_thread_worker_fn(void *arg)
 		list_del(&cmd->bs_list);
 		pthread_cleanup_pop(1); /* Unlock pending_lock mutex */
 
+/** comment by hy 2020-09-21
+ * # 调用其处理换上
+ */
 		info->request_fn(cmd);
 
 		pthread_mutex_lock(&finished_lock);
+/** comment by hy 2020-09-21
+ * # 处理完成之后加入完成队列
+ */
 		list_add_tail(&cmd->bs_list, &finished_list);
 		pthread_mutex_unlock(&finished_lock);
 
@@ -439,6 +445,9 @@ tgtadm_err bs_thread_open(struct bs_thread_info *info, request_func_t *rfn,
 	pthread_mutex_init(&info->pending_lock, NULL);
 
 	for (i = 0; i < nr_threads; i++) {
+/** comment by hy 2020-09-21
+ * # 创建线程的队列
+ */
 		ret = pthread_create(&info->worker_thread[i], NULL,
 				     bs_thread_worker_fn, info);
 

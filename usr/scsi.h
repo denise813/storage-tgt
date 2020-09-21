@@ -61,7 +61,7 @@
 #define WRITE_LONG            0x3f
 #define CHANGE_DEFINITION     0x40
 #define WRITE_SAME            0x41
-#define UNMAP		      0x42
+#define UNMAP		          0x42		//Need soppurt by vmware
 #define READ_TOC              0x43
 #define GET_CONFIGURATION     0x46
 #define LOG_SELECT            0x4c
@@ -77,15 +77,17 @@
 #define PERSISTENT_RESERVE_IN 0x5e
 #define PERSISTENT_RESERVE_OUT 0x5f
 #define VARLEN_CDB            0x7f
+#define EXTENDED_COPY         0x83		//Need soppurt by vmware
+#define RECEIVE_COPY_RESULTS  0x84		//Need soppurt by vmware
 #define READ_16               0x88
-#define COMPARE_AND_WRITE     0x89
+#define COMPARE_AND_WRITE     0x89		//Need soppurt by vmware
 #define WRITE_16              0x8a
 #define ORWRITE_16            0x8b
 #define WRITE_VERIFY_16       0x8e
 #define VERIFY_16	      0x8f
 #define PRE_FETCH_16          0x90
 #define SYNCHRONIZE_CACHE_16  0x91
-#define WRITE_SAME_16         0x93
+#define WRITE_SAME_16         0x93		//Need soppurt by vmware
 #define SERVICE_ACTION_IN     0x9e
 #define	SAI_READ_CAPACITY_16  0x10
 #define	SAI_GET_LBA_STATUS    0x12
